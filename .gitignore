@@ -1,0 +1,8 @@
+.vscode
+__pycache__
+data.tex
+*.html
+.bash_profile
+_typeconv.cpp
+pyvenv
+.DS_Store
