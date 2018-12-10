@@ -75,22 +75,22 @@ class NewsFeed:
         sort = self.TIME_SERIES()
         sort_len = len(sort)
         scoreli = np.linspace(0.02,0,len(sort))
-        clicks = visitor.click[:2]
-        rets = visitor.ret[:10]
-        favs = visitor.fav[:10]
+        clicks = visitor.click[:40]
+        rets = visitor.ret
+        favs = visitor.fav
         for i in range(sort_len):
             for post in clicks:
-                if post[3] == sort[i][3] and post[4] == sort[i][4]:
+                if post[2] == sort[i][2]:
                     scoreli[i] += 0.01
             for postId in rets:
                 if self.post_cont[len(self.post_cont)-1][0] < postId:
                     post = self.post_cont[self.post_cont[0][0]-postId]
-                    if post[3] == sort[i][3] and post[4] == sort[i][4]:
+                    if post[2] == sort[i][2]:
                         scoreli[i] += 0.02
             for postId in favs:
                 if self.post_cont[len(self.post_cont)-1][0] < postId:
                     post = self.post_cont[self.post_cont[0][0]-postId]
-                    if post[3] == sort[i][3] and post[4] == sort[i][4]:
+                    if post[2] == sort[i][2]:
                         scoreli[i] += 0.02
         score_list = [[sort[i][0], scoreli[i]] for i in range(sort_len)]
         score_list.sort(key=operator.itemgetter(1),reverse=True)
@@ -110,9 +110,7 @@ class NewsFeed:
                 self.add_discomfort(see_cont, visitor)
         self.add_history(see_cont,visitor)
         rrlook = np.linspace(1,0,len(see_cont)) #閲覧確率を上から順に下げていくリスト
-        rrtyp = np.array([(1-0.02*abs(visitor.typ-i[2])) if abs(visitor.typ-i[2]) <= 50 else (1-0.02*(100-abs(visitor.typ-i[2]))) for i in see_cont])
-        if production:
-           print(rrtyp)
+        rrtyp = np.array([(1-0.01*abs(visitor.typ-i[2])) for i in see_cont])
         read_rate_list = rrlook * rrtyp
         count = 0
         for cont in see_cont:
@@ -186,12 +184,11 @@ class NewsFeed:
     #リツートか同じ内容で新たにツイートするか
     def retweet_or_quotetweet(self, step, typ, vx, vy, content):
         Typ = int(random.normalvariate(typ,0.5)%self.type_num)
-        if typ == Typ:
-            ix = self.post_cont[0][0] - content[0]
-            postlen = len(self.post_cont)
-            if postlen > ix:
-                self.post_cont[ix][5] += 1 #リツイート数加算
-                self.add_ret(self.users[vx,vy],self.post_cont[ix][0])
+        ix = self.post_cont[0][0] - content[0]
+        postlen = len(self.post_cont)
+        if postlen > ix:
+            self.post_cont[ix][5] += 1 #リツイート数加算
+            self.add_ret(self.users[vx,vy],self.post_cont[ix][0])
         self.add_post_cont(step,Typ,self.users[vx,vy])
     
     #状態遷移試行
@@ -241,15 +238,11 @@ class NewsFeed:
                 cont_typ = int((hist[1][current]+hist[1][current+1])/2)
                 diff = cont_typ - vtype
                 if diff == 0:
-                    visitor.typ = vtype
-                elif diff > 50 or (diff > -50 and diff < 0):
-                    visitor.typ = vtype - 2
-                    if visitor.typ < 0:
-                        visitor.typ = 98
+                  visitor.typ = vtype
+                elif diff > 0:
+                  visitor.typ = vtype + 2
                 else:
-                    visitor.typ = vtype + 2
-                    if visitor.typ > 99:
-                        visitor.typ = 1
+                  visitor.typ = vtype - 2
             current += 1
 
 
@@ -334,15 +327,8 @@ class NewsFeed:
     #不快指数に追加
     def add_discomfort(self, see_cont, visitor):
         cont_typs = [cont[2] for cont in see_cont[:30]]
-        dissum = 0
-        for cont_typ in cont_typs:
-            #if abs(cont_typ-visitor.typ) >= 30 and abs(cont_typ-visitor.typ) < 70:
-            #    dissum += 1
-            if abs(cont_typ-visitor.typ) < 50:
-                dissum += abs(cont_typ-visitor.typ)
-            else:
-                dissum += 100-abs(cont_typ-visitor.typ)
-        disave = dissum/len(cont_typs)
+        disli = [abs(i-visitor.typ) for i in cont_typs]
+        disave = sum(disli)/len(disli)
         self.discom.append(disave)
 
     #ステップ
@@ -553,11 +539,11 @@ def condition_plot(contents_data,file_name,prestep,n_step):
 
 
 #ーーーーーーーーーーーーーーー実装ーーーーーーーーーーーーーーー
-EMPTY_STEP = 7000 #空ステップ数
-STEP_NUMBER = 3000 #ステップ数
-XY = 20 #人数　XY*XY人
+EMPTY_STEP = 10000 #空ステップ数
+STEP_NUMBER = 4000 #ステップ数
+XY = 35 #人数　XY*XY人
 
-algorithm = 'HISTORY_SERIES' #アルゴリズム
+algorithm = 'TIME_SERIES' #アルゴリズム
 
 file_name1 = 'PLOT-CONDITION-' + algorithm #ファイル名
 file_name2 = 'PLOT-FILTERBUBBLE-' + algorithm
