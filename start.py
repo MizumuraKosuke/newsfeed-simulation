@@ -51,6 +51,8 @@ class NewsFeed:
             return self.ENGAGE_SERIES(visitor, step)
         elif series == "HISTORY_SERIES":
             return self.HISTORY_SERIES(visitor, step)
+        elif series == 'PROPOSE_SERIES':
+            return self.PROPOSE_SERIES(visitor, step)
         else:
             print("そんなアルゴリズムはありません。")
     
@@ -96,6 +98,24 @@ class NewsFeed:
         score_list.sort(key=operator.itemgetter(1),reverse=True)
         history_list = [self.post_cont[self.post_cont[0][0]-i[0]] for i in score_list]
         return history_list
+    
+    #提案法アルゴリズム
+    def PROPOSE_SERIES(self, visitor, step):
+        sort = self.HISTORY_SERIES(visitor, step)
+        sort_len = len(sort)
+        typ_li = [sort[i][2] for i in range(sort_len)]
+        top_typs, c = zip(*collections.Counter(typ_li).most_common())
+        top_typs = list(top_typs)
+        top_typs = [i for i in top_typs if abs(i-sort[0][2]) > 50][:5]
+        ins = 7
+        for typ in top_typs:
+            for i in range(sort_len):
+                if sort[i][2] == typ:
+                    sort[ins], sort[i] = sort[i], sort[ins]
+                    ins += 8
+                    break
+        return sort
+
 
     #記事閲覧
     def look(self, sort, visitor, step, n_step, production):
@@ -107,12 +127,13 @@ class NewsFeed:
             if production:
                 self.add_std(see_cont)
                 self.add_hist(hist)
-                self.add_discomfort(see_cont, visitor)
+                #self.add_discomfort(see_cont, visitor)
         self.add_history(see_cont,visitor)
         rrlook = np.linspace(1,0,len(see_cont)) #閲覧確率を上から順に下げていくリスト
         rrtyp = np.array([(1-0.01*abs(visitor.typ-i[2])) for i in see_cont])
         read_rate_list = rrlook * rrtyp
         count = 0
+        dis_cont = []
         for cont in see_cont:
             ix = self.post_cont[0][0] - cont[0]
             postlen = len(self.post_cont)
@@ -121,7 +142,10 @@ class NewsFeed:
             if random.random() < read_rate_list[count]:
                 self.add_click(visitor, cont)
                 self.trans(cont,visitor,step)
+                dis_cont.append(cont)
             count += 1
+        if production:
+            self.add_discomfort(dis_cont, visitor)
     
     #状態遷移
     def trans(self, content, visitor, step):
@@ -325,11 +349,12 @@ class NewsFeed:
         self.hists.append(hist)
     
     #不快指数に追加
-    def add_discomfort(self, see_cont, visitor):
-        cont_typs = [cont[2] for cont in see_cont[:30]]
-        disli = [abs(i-visitor.typ) for i in cont_typs]
-        disave = sum(disli)/len(disli)
-        self.discom.append(disave)
+    def add_discomfort(self, dis_cont, visitor):
+        if dis_cont != []:
+            cont_typs = [cont[2] for cont in dis_cont[:30]]
+            disli = [abs(i-visitor.typ) for i in cont_typs]
+            disave = sum(disli)/len(disli)
+            self.discom.append(disave)
 
     #ステップ
     def step(self,step,n_step,series, production):
@@ -538,29 +563,57 @@ def condition_plot(contents_data,file_name,prestep,n_step):
     plotly.offline.plot(fig, filename='{}.html'.format(file_name))
 
 
+
+def simulation(EMPTY_STEP, STEP_NUMBER, XY, algorithms, SIM_NUM):
+    stdsum = [[],[],[],[]]
+    dissum = [[],[],[],[]]
+    for i in range(SIM_NUM):
+        for algorithm in algorithms:
+            file_name1 = 'PLOT-CONDITION-' + algorithm #ファイル名
+            file_name2 = 'PLOT-FILTERBUBBLE-' + algorithm
+            file_name3 = 'PLOT-HISTOGRAM-' + algorithm
+            file_name4 = 'PLOT-DISCOMFORT-' + algorithm
+            
+            
+            newsfeed = NewsFeed(XY,XY,algorithm)
+            newsfeed.start(EMPTY_STEP,STEP_NUMBER)
+            print('fin')
+            
+            condition_plot(newsfeed.contents,file_name1,EMPTY_STEP,STEP_NUMBER)
+            std_plot(newsfeed.stds,file_name2)
+            histogram_plot(newsfeed.hists,file_name3)
+            discomfort_plot(newsfeed.discom,file_name4)
+            
+            print(algorithm)
+            print('std: {}'.format(sum(newsfeed.stds)/len(newsfeed.stds)))
+            print('不快指数: {}'.format(sum(newsfeed.discom)/len(newsfeed.discom)))
+
+            if algorithm == 'TIME_SERIES':
+                stdsum[0].append(sum(newsfeed.stds)/len(newsfeed.stds))
+                dissum[0].append(sum(newsfeed.discom)/len(newsfeed.discom))
+            elif algorithm == 'ENGAGE_SERIES':
+                stdsum[1].append(sum(newsfeed.stds)/len(newsfeed.stds))
+                dissum[1].append(sum(newsfeed.discom)/len(newsfeed.discom))
+            elif algorithm == 'HISTORY_SERIES':
+                stdsum[2].append(sum(newsfeed.stds)/len(newsfeed.stds))
+                dissum[2].append(sum(newsfeed.discom)/len(newsfeed.discom))
+            elif algorithm == 'PROPOSE_SERIES':
+                stdsum[3].append(sum(newsfeed.stds)/len(newsfeed.stds))
+                dissum[3].append(sum(newsfeed.discom)/len(newsfeed.discom))
+    print('/n/n')
+    print('--------------結果---------------')
+    print('-----標準偏差-----')
+    for i in range(len(algorithms)):
+        print('{}: {}'.format(algorithms[i],round(sum(stdsum[i])/len(stdsum[i]), 2)))
+    print('-----不快度-----')
+    for i in range(len(algorithms)):
+        print('{}: {}'.format(algorithms[i],round(sum(dissum[i])/len(dissum[i]), 2)))
+
 #ーーーーーーーーーーーーーーー実装ーーーーーーーーーーーーーーー
 EMPTY_STEP = 10000 #空ステップ数
 STEP_NUMBER = 4000 #ステップ数
 XY = 35 #人数　XY*XY人
+algorithms = ['TIME_SERIES','ENGAGE_SERIES','HISTORY_SERIES','PROPOSE_SERIES'] #アルゴリズム
+SIM_NUM = 1
 
-algorithm = 'TIME_SERIES' #アルゴリズム
-
-file_name1 = 'PLOT-CONDITION-' + algorithm #ファイル名
-file_name2 = 'PLOT-FILTERBUBBLE-' + algorithm
-file_name3 = 'PLOT-HISTOGRAM-' + algorithm
-file_name4 = 'PLOT-DISCOMFORT-' + algorithm
-
-
-newsfeed = NewsFeed(XY,XY,algorithm)
-newsfeed.start(EMPTY_STEP,STEP_NUMBER)
-print('fin')
-
-condition_plot(newsfeed.contents,file_name1,EMPTY_STEP,STEP_NUMBER)
-std_plot(newsfeed.stds,file_name2)
-histogram_plot(newsfeed.hists,file_name3)
-discomfort_plot(newsfeed.discom,file_name4)
-
-print(algorithm)
-print('std: {}'.format(sum(newsfeed.stds)/len(newsfeed.stds)))
-print('不快指数: {}'.format(sum(newsfeed.discom)/len(newsfeed.discom)))
-print('タイプの分散: {}'.format(sum(newsfeed.typestds)/len(newsfeed.typestds)))
+simulation(EMPTY_STEP, STEP_NUMBER, XY, algorithms, SIM_NUM)
