@@ -107,12 +107,12 @@ class NewsFeed:
         top_typs, c = zip(*collections.Counter(typ_li).most_common())
         top_typs = list(top_typs)
         top_typs = [i for i in top_typs if abs(i-sort[0][2]) > 50][:5]
-        ins = 7
+        ins = 9
         for typ in top_typs:
             for i in range(sort_len):
                 if sort[i][2] == typ:
                     sort[ins], sort[i] = sort[i], sort[ins]
-                    ins += 8
+                    ins += 10
                     break
         return sort
 

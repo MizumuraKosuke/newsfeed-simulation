@@ -41,6 +41,7 @@ class NewsFeed:
         self.stds = [] #ニュースフィードの記事のタイプの標準偏差
         self.hists = [] #ニュースフィードの記事のタイプの度数分布
         self.discom = [] #ニュースフィードの記事のタイプの不快度
+        self.typestds = [] #ユーザータイプの標準偏差
     
     #アルゴリズム選択関数
     def select_SERIES(self,series,visitor,step):
@@ -50,6 +51,8 @@ class NewsFeed:
             return self.ENGAGE_SERIES(visitor, step)
         elif series == "HISTORY_SERIES":
             return self.HISTORY_SERIES(visitor, step)
+        elif series == 'PROPOSE_SERIES':
+            return self.PROPOSE_SERIES(visitor, step)
         else:
             print("そんなアルゴリズムはありません。")
     
@@ -74,42 +77,63 @@ class NewsFeed:
         sort = self.TIME_SERIES()
         sort_len = len(sort)
         scoreli = np.linspace(0.02,0,len(sort))
-        clicks = visitor.click[:30]
-        rets = visitor.ret[:30]
-        favs = visitor.fav[:30]
+        clicks = visitor.click[:40]
+        rets = visitor.ret
+        favs = visitor.fav
         for i in range(sort_len):
             for post in clicks:
-                if post[3] == sort[i][3] and post[4] == sort[i][4]:
+                if post[2] == sort[i][2]:
                     scoreli[i] += 0.01
             for postId in rets:
                 if self.post_cont[len(self.post_cont)-1][0] < postId:
                     post = self.post_cont[self.post_cont[0][0]-postId]
-                    if post[3] == sort[i][3] and post[4] == sort[i][4]:
+                    if post[2] == sort[i][2]:
                         scoreli[i] += 0.02
             for postId in favs:
                 if self.post_cont[len(self.post_cont)-1][0] < postId:
                     post = self.post_cont[self.post_cont[0][0]-postId]
-                    if post[3] == sort[i][3] and post[4] == sort[i][4]:
-                        scoreli[i] += 0.005
+                    if post[2] == sort[i][2]:
+                        scoreli[i] += 0.02
         score_list = [[sort[i][0], scoreli[i]] for i in range(sort_len)]
         score_list.sort(key=operator.itemgetter(1),reverse=True)
         history_list = [self.post_cont[self.post_cont[0][0]-i[0]] for i in score_list]
         return history_list
+    
+    #提案法アルゴリズム
+    def PROPOSE_SERIES(self, visitor, step):
+        sort = self.HISTORY_SERIES(visitor, step)
+        sort_len = len(sort)
+        typ_li = [sort[i][2] for i in range(sort_len)]
+        top_typs, c = zip(*collections.Counter(typ_li).most_common())
+        top_typs = list(top_typs)
+        top_typs = [i for i in top_typs if abs(i-sort[0][2]) > 50][:5]
+        ins = 11
+        for typ in top_typs:
+            for i in range(sort_len):
+                if sort[i][2] == typ:
+                    sort[ins], sort[i] = sort[i], sort[ins]
+                    ins += 12
+                    break
+        return sort
+
 
     #記事閲覧
     def look(self, sort, visitor, step, n_step, production):
         see_cont_num = self.see(visitor)
         see_cont = sort[:see_cont_num]
-        if production:
-            self.add_std(see_cont)
-            self.add_hist(see_cont)
-            self.add_discomfort(see_cont, visitor)
+        if len(see_cont) >= 30:
+            hist=self.hist(see_cont)
+            self.move_type(visitor, hist)
+            if production:
+                self.add_std(see_cont)
+                self.add_hist(hist)
+                #self.add_discomfort(see_cont, visitor)
         self.add_history(see_cont,visitor)
         rrlook = np.linspace(1,0,len(see_cont)) #閲覧確率を上から順に下げていくリスト
-        rrtyp = np.array([(0.4-0.01*abs(visitor.typ-i[2])) if abs(visitor.typ-i[2]) <= self.type_num/2 else 0.4-0.01*(self.type_num-abs(visitor.typ-i[2])) for i in see_cont])
-        rrtyp = np.array([i if i > 0 else 0 for i in rrtyp])
+        rrtyp = np.array([(1-0.01*abs(visitor.typ-i[2])) for i in see_cont])
         read_rate_list = rrlook * rrtyp
         count = 0
+        dis_cont = []
         for cont in see_cont:
             ix = self.post_cont[0][0] - cont[0]
             postlen = len(self.post_cont)
@@ -118,7 +142,10 @@ class NewsFeed:
             if random.random() < read_rate_list[count]:
                 self.add_click(visitor, cont)
                 self.trans(cont,visitor,step)
+                dis_cont.append(cont)
             count += 1
+        if production:
+            self.add_discomfort(dis_cont, visitor)
     
     #状態遷移
     def trans(self, content, visitor, step):
@@ -148,7 +175,7 @@ class NewsFeed:
                 rand = random.random()
                 if rand <= P:
                     model[vx,vy] = 1
-                    self.retweet_or_quotetweet(step,cont.typ, vx, vy, content) 
+                    self.retweet_or_quotetweet(step,cont.typ, vx, vy, content)             
 
     #エネルギー
     def energy(self, adj, j, user):
@@ -180,14 +207,13 @@ class NewsFeed:
     
     #リツートか同じ内容で新たにツイートするか
     def retweet_or_quotetweet(self, step, typ, vx, vy, content):
-        Typ = int(random.normalvariate(typ,1)%self.type_num)
-        if typ == Typ:
-            ix = self.post_cont[0][0] - content[0]
-            postlen = len(self.post_cont)
-            if postlen > ix:
-                self.post_cont[ix][5] += 1 #リツイート数加算
-                self.add_ret(self.users[vx,vy],self.post_cont[ix][0])
-        self.add_post_cont(step,typ,self.users[vx,vy])
+        Typ = int(random.normalvariate(typ,0.5)%self.type_num)
+        ix = self.post_cont[0][0] - content[0]
+        postlen = len(self.post_cont)
+        if postlen > ix:
+            self.post_cont[ix][5] += 1 #リツイート数加算
+            self.add_ret(self.users[vx,vy],self.post_cont[ix][0])
+        self.add_post_cont(step,Typ,self.users[vx,vy])
     
     #状態遷移試行
     def conds_trandition(self, visitor):
@@ -223,7 +249,25 @@ class NewsFeed:
         see_rate = 0.57 #記事をスクロールする確率
         see_cont_num = int(unsee * see_rate) #見る記事の数
         #print('unsee : {},see cont num: {} current ID :{}, already see: {}'.format(unsee, see_cont_num,currentId, visitor.already_see))
+        if see_cont_num > 30:
+            see_cont_num = 30
         return see_cont_num
+    
+    #タイプの遷移
+    def move_type(self, visitor, hist):
+        vtype = visitor.typ
+        current = 0
+        for i in hist[0]:
+            if i > 0.1:
+                cont_typ = int((hist[1][current]+hist[1][current+1])/2)
+                diff = cont_typ - vtype
+                if diff == 0:
+                  visitor.typ = vtype
+                elif diff > 0:
+                  visitor.typ = vtype + 2
+                else:
+                  visitor.typ = vtype - 2
+            current += 1
 
 
     #ーーーーーSNS側がアルゴリズム作成に利用できるデーターーーーー
@@ -275,31 +319,42 @@ class NewsFeed:
     
     #標準偏差に追加
     def add_std(self, see_cont):
-        if len(see_cont) >= 50:
-            cont_typs = [cont[2] for cont in see_cont[:50]]
-            mean = sum(cont_typs)/len(cont_typs)
-            squared_diff = [(typ-mean)**2 for typ in cont_typs]
-            variance = sum(squared_diff)/len(squared_diff)
-            std = variance**0.5
-            self.stds.append(std)
+        cont_typs = [cont[2] for cont in see_cont[:50]]
+        mean = sum(cont_typs)/len(cont_typs)
+        squared_diff = [(typ-mean)**2 for typ in cont_typs]
+        variance = sum(squared_diff)/len(squared_diff)
+        std = variance**0.5
+        self.stds.append(std)
     
+    #タイプの標準偏差に追加
+    def add_typestd(self):
+        typeli = []
+        for i in self.users:
+            for j in i:
+                typeli.append(j.typ)
+        mean = sum(typeli)/len(typeli)
+        squared_diff = [(typ-mean)**2 for typ in typeli]
+        variance = sum(squared_diff)/len(squared_diff)
+        std = variance**0.5
+        self.typestds.append(std)
+
+    def hist(self, see_cont):
+        cont_typs = [cont[2] for cont in see_cont[:30]]
+        hist, bins = np.histogram(cont_typs, bins=np.arange(0,self.type_num,3))
+        relative_hist = hist/sum(hist)
+        return [relative_hist, bins]
+
     #ヒストグラムに追加
-    def add_hist(self, see_cont):
-        if len(see_cont) >= 50:
-            cont_typs = [cont[2] for cont in see_cont]
-            hist, bins = np.histogram(cont_typs, bins=np.arange(0,self.type_num,3))
-            relative_hist = hist/sum(hist)
-            self.hists.append([relative_hist, bins])
+    def add_hist(self, hist):
+        self.hists.append(hist)
     
     #不快指数に追加
-    def add_discomfort(self, see_cont, visitor):
-        if len(see_cont) >= 50:
-            cont_typs = [cont[2] for cont in see_cont[:50]]
-            dissum = 0
-            for cont_typ in cont_typs:
-                if abs(cont_typ-visitor.typ) >= 40 and abs(cont_typ-visitor.typ) < 60:
-                    dissum += 1
-            self.discom.append(dissum)
+    def add_discomfort(self, dis_cont, visitor):
+        if dis_cont != []:
+            cont_typs = [cont[2] for cont in dis_cont[:30]]
+            disli = [abs(i-visitor.typ) for i in cont_typs]
+            disave = sum(disli)/len(disli)
+            self.discom.append(disave)
 
     #ステップ
     def step(self,step,n_step,series, production):
@@ -307,6 +362,8 @@ class NewsFeed:
         ry = random.randint(0,self.y-1)
         visitor = self.users[rx,ry] #ユーザーを1人ランダムで決定
         self.conds_trandition(visitor) #ユーザーの記事に対する注目度の変化を測定
+        if production:
+            self.add_typestd()
         which = random.random()
         if which <= 0.8: #記事閲覧
             sort = self.select_SERIES(series,visitor,step)
@@ -331,22 +388,24 @@ class NewsFeed:
         for x in range(self.x):
             for y in range(self.y):
                 self.add_users(x,y)
+                self.users[x,y].typ = random.randint(0,self.type_num-1)
                 #self.users[x,y].typ = int(self.type_num*typelin[x]*typelin[y])%self.type_num
-                if random.random() >= 0.5:
-                    self.users[x,y].typ = int(random.normalvariate(10,0.5)%self.type_num)
-                else:
-                    self.users[x,y].typ = int(random.normalvariate(70,0.5)%self.type_num)
-                print(self.users[x,y].typ)
+                #if random.random() >= 0.5:
+                #    self.users[x,y].typ = int(random.normalvariate(10,0.5)%self.type_num)
+                #else:
+                #    self.users[x,y].typ = int(random.normalvariate(70,0.5)%self.type_num)
         es = round(empty_step/2)
         for i in range(es):
             self.step(i,n_step+empty_step,"TIME_SERIES",False)
-            print(i)
+            #print(i)
+        print('time fin')
         for i in range(es):
             self.step(i+es,n_step+empty_step,self.series,False)
-            print(i+es)
+            #print(i+es)
+        print('empty fin')
         for i in range(n_step):
             self.step(i+empty_step,n_step+empty_step,self.series,True)
-            print(i+empty_step)
+            #print(i+empty_step)
     
 
     #ーーーーー記事の情勢の管理ーーーーー
@@ -504,26 +563,43 @@ def condition_plot(contents_data,file_name,prestep,n_step):
     plotly.offline.plot(fig, filename='{}.html'.format(file_name))
 
 
+
+def simulation(EMPTY_STEP, STEP_NUMBER, XY, algorithms, SIM_NUM):
+    stdsum = []
+    dissum = []
+    for i in range(SIM_NUM):
+        file_name1 = 'PLOT-CONDITION-' + algorithm #ファイル名
+        file_name2 = 'PLOT-FILTERBUBBLE-' + algorithm
+        file_name3 = 'PLOT-HISTOGRAM-' + algorithm
+        file_name4 = 'PLOT-DISCOMFORT-' + algorithm
+        
+        
+        newsfeed = NewsFeed(XY,XY,algorithm)
+        newsfeed.start(EMPTY_STEP,STEP_NUMBER)
+        print('fin')
+        
+        #condition_plot(newsfeed.contents,file_name1,EMPTY_STEP,STEP_NUMBER)
+        #std_plot(newsfeed.stds,file_name2)
+        #histogram_plot(newsfeed.hists,file_name3)
+        #discomfort_plot(newsfeed.discom,file_name4)
+        
+        print(algorithm)
+        print('std: {}'.format(sum(newsfeed.stds)/len(newsfeed.stds)))
+        print('不快指数: {}'.format(sum(newsfeed.discom)/len(newsfeed.discom)))
+        stdsum.append(sum(newsfeed.stds)/len(newsfeed.stds))
+        dissum.append(sum(newsfeed.discom)/len(newsfeed.discom))
+    print('/n/n')
+    print('--------------結果---------------')
+    print('-----標準偏差-----')
+    print('{}: {}'.format(algorithm,round(sum(stdsum)/len(stdsum), 2)))
+    print('-----不快度-----')
+    print('{}: {}'.format(algorithm,round(sum(dissum)/len(dissum), 2)))
+
 #ーーーーーーーーーーーーーーー実装ーーーーーーーーーーーーーーー
-EMPTY_STEP = 7000 #空ステップ数
-STEP_NUMBER = 3000 #ステップ数
-XY = 20 #人数　XY*XY人
+EMPTY_STEP = 10000 #空ステップ数
+STEP_NUMBER = 4000 #ステップ数
+XY = 35 #人数　XY*XY人
+algorithm = 'PROPOSE_SERIES' #アルゴリズム
+SIM_NUM = 10
 
-algorithm = 'HISTORY_SERIES' #アルゴリズム
-
-file_name1 = 'PLOT-CONDITION-' + algorithm #ファイル名
-file_name2 = 'PLOT-FILTERBUBBLE-' + algorithm
-file_name3 = 'PLOT-HISTOGRAM-' + algorithm
-file_name4 = 'PLOT-DISCOMFORT-' + algorithm
-
-
-newsfeed = NewsFeed(XY,XY,algorithm)
-newsfeed.start(EMPTY_STEP,STEP_NUMBER)
-print('fin')
-
-condition_plot(newsfeed.contents,file_name1,EMPTY_STEP,STEP_NUMBER)
-std_plot(newsfeed.stds,file_name2)
-histogram_plot(newsfeed.hists,file_name3)
-discomfort_plot(newsfeed.discom,file_name4)
-
-print('不快指数: {}'.format(sum(newsfeed.discom)/len(newsfeed.discom)))
+simulation(EMPTY_STEP, STEP_NUMBER, XY, algorithm, SIM_NUM)
