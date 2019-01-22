@@ -29,7 +29,7 @@ class Content:
 
 
 class NewsFeed:
-    def __init__(self,x,y,series):
+    def __init__(self,x,y,series,rate):
         self.x = x #ユーザーエージェントフィールドのx軸
         self.y = y #ユーザーエージェントフィールドのy軸
         self.users = np.zeros((self.x,self.y), dtype=object) #ユーザーフィールドの枠組み
@@ -42,6 +42,7 @@ class NewsFeed:
         self.hists = [] #ニュースフィードの記事のタイプの度数分布
         self.discom = [] #ニュースフィードの記事のタイプの不快度
         self.typestds = [] #ユーザータイプの標準偏差
+        self.rate = rate #提案法の混合率
     
     #アルゴリズム選択関数
     def select_SERIES(self,series,visitor,step):
@@ -107,7 +108,7 @@ class NewsFeed:
         top_typs, c = zip(*collections.Counter(typ_li).most_common())
         top_typs = list(top_typs)
         top_typs = [i for i in top_typs if abs(i-sort[0][2]) > 50][:30]
-        push_rate = 0
+        push_rate = self.rate
         push_number = int(30*push_rate)
         if push_number > len(top_typs):
             push_number = len(top_typs)
@@ -120,16 +121,13 @@ class NewsFeed:
         #            break
         poplist = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
         poplist = random.sample(poplist,push_number)
-        print(top_typs[:push_number])
         for j in range(push_number):
             typ = top_typs[j]
             rand = poplist[j]
             for i in range(sort_len):
                 if sort[i][2] == typ:
-                    print(sort[i][2])
                     sort[rand], sort[i] = sort[i], sort[rand]
-                    break
-        print([i[2] for i in sort[:30]])        
+                    break       
         return sort
 
 
@@ -500,6 +498,96 @@ def discomfort_plot(discom_data,file_name):
 
 
 
+def incon_plot(incon_data, file_name, rates):
+    X = rates
+    Y = incon_data
+    time = [19.50] * len(rates)
+    engage = [16.03] * len(rates)
+    history = [12.51] * len(rates)
+
+    data = go.Scatter(
+        x=X,
+        y=Y,
+        mode="lines",
+        name="proposed series"
+    )
+    T = go.Scatter(
+        x=X,
+        y=time,
+        mode="lines",
+        name="time series"
+    )
+    E = go.Scatter(
+        x=X,
+        y=engage,
+        mode="lines",
+        name="engagement series"
+    )
+    H= go.Scatter(
+        x=X,
+        y=history,
+        mode="lines",
+        name="history series"
+    )
+    layout = go.Layout(
+        xaxis=dict(
+            title="frequency"
+        ),
+        yaxis=dict(
+            title="inconvenience index"
+        )
+    )
+
+    fig = dict(data = [data,T,E,H], layout=layout)
+    plotly.offline.plot(fig, filename='{}.html'.format(file_name))
+
+
+
+def scattered_plot(scattered_data, file_name, rates):
+    X = rates
+    Y = scattered_data
+    time = [18.95] * len(rates)
+    engage = [3.94] * len(rates)
+    history = [7.01] * len(rates)
+
+    data = go.Scatter(
+        x=X,
+        y=Y,
+        mode="lines",
+        name="proposed series"
+    )
+    T = go.Scatter(
+        x=X,
+        y=time,
+        mode="lines",
+        name="time series"
+    )
+    E = go.Scatter(
+        x=X,
+        y=engage,
+        mode="lines",
+        name="engage series"
+    )
+    H= go.Scatter(
+        x=X,
+        y=history,
+        mode="lines",
+        name="history series"
+    )
+    layout = go.Layout(
+        xaxis=dict(
+            title="frequency"
+        ),
+        yaxis=dict(
+            title="scattered"
+        )
+    )
+
+    fig = dict(data = [data,T,E,H], layout=layout)
+    plotly.offline.plot(fig, filename='{}.html'.format(file_name))
+
+
+
 def histogram_plot(hist_data,file_name):
     X = [] #階級
     Y = [] #閲覧順
@@ -580,61 +668,55 @@ def condition_plot(contents_data,file_name,prestep,n_step):
 
 
 
-def simulation(EMPTY_STEP, STEP_NUMBER, XY, algorithms, SIM_NUM):
-    alg = ['TIME_SERIES','ENGAGE_SERIES','HISTORY_SERIES','PROPOSE_SERIES']
-    stdsum = [[],[],[],[]]
-    dissum = [[],[],[],[]]
-    for i in range(SIM_NUM):
-        for algorithm in algorithms:
-            file_name1 = 'PLOT-CONDITION-' + algorithm #ファイル名
-            file_name2 = 'PLOT-FILTERBUBBLE-' + algorithm
-            file_name3 = 'PLOT-HISTOGRAM-' + algorithm
-            file_name4 = 'PLOT-DISCOMFORT-' + algorithm
+def simulation(EMPTY_STEP, STEP_NUMBER, XY, rates, SIM_NUM):
+    stdsum = [[] for i in range(len(rates))]
+    dissum = [[] for i in range(len(rates))]
+    current = 0
+    for rate in rates:
+        for i in range(SIM_NUM):
+            file_name1 = 'PLOT-CONDITION-' + 'PROPOSE_SERIES' #ファイル名
+            file_name2 = 'PLOT-FILTERBUBBLE-' + 'PROPOSE_SERIES'
+            file_name3 = 'PLOT-HISTOGRAM-' + 'PROPOSE_SERIES'
+            file_name4 = 'PLOT-DISCOMFORT-' + 'PROPOSE_SERIES'
             
-            
-            newsfeed = NewsFeed(XY,XY,algorithm)
+            print('PROPOSE_SERIES rate: {} times: {}'.format(rate,i+1))
+            newsfeed = NewsFeed(XY,XY,'PROPOSE_SERIES',rate)
             newsfeed.start(EMPTY_STEP,STEP_NUMBER)
             print('fin')
             
-            condition_plot(newsfeed.contents,file_name1,EMPTY_STEP,STEP_NUMBER)
-            std_plot(newsfeed.stds,file_name2)
-            histogram_plot(newsfeed.hists,file_name3)
-            discomfort_plot(newsfeed.discom,file_name4)
-            
-            print(algorithm)
+            #condition_plot(newsfeed.contents,file_name1,EMPTY_STEP,STEP_NUMBER)
+            #std_plot(newsfeed.stds,file_name2)
+            #histogram_plot(newsfeed.hists,file_name3)
+            #discomfort_plot(newsfeed.discom,file_name4)
+
             print('std: {}'.format(sum(newsfeed.stds)/len(newsfeed.stds)))
             print('不快指数: {}'.format(sum(newsfeed.discom)/len(newsfeed.discom)))
             print('\n')
 
-            if algorithm == 'TIME_SERIES':
-                stdsum[0].append(sum(newsfeed.stds)/len(newsfeed.stds))
-                dissum[0].append(sum(newsfeed.discom)/len(newsfeed.discom))
-            elif algorithm == 'ENGAGE_SERIES':
-                stdsum[1].append(sum(newsfeed.stds)/len(newsfeed.stds))
-                dissum[1].append(sum(newsfeed.discom)/len(newsfeed.discom))
-            elif algorithm == 'HISTORY_SERIES':
-                stdsum[2].append(sum(newsfeed.stds)/len(newsfeed.stds))
-                dissum[2].append(sum(newsfeed.discom)/len(newsfeed.discom))
-            elif algorithm == 'PROPOSE_SERIES':
-                stdsum[3].append(sum(newsfeed.stds)/len(newsfeed.stds))
-                dissum[3].append(sum(newsfeed.discom)/len(newsfeed.discom))
+            stdsum[current].append(sum(newsfeed.stds)/len(newsfeed.stds))
+            dissum[current].append(sum(newsfeed.discom)/len(newsfeed.discom))
+        current += 1
+        std = [round(sum(stdsum[i])/len(stdsum[i]), 2) for i in range(len(stdsum)) if stdsum[i] != []]
+        inc = [round(sum(dissum[i])/len(dissum[i]), 2) for i in range(len(dissum)) if dissum[i] != []]
+        scattered_plot(std, 'PLOT-SCATTERED', rates)
+        incon_plot(inc, 'PLOT-INCON', rates)
         print('\n')
     print('\n\n')
     print('--------------結果---------------')
     print('-----標準偏差-----')
-    for i in range(4):
-        if stdsum[i] != []:
-            print('{}: {}'.format(alg[i],round(sum(stdsum[i])/len(stdsum[i]), 2)))
+    for i in range(len(std)):
+        print('{}: {}'.format(rates[i],std[i]))
     print('-----不快度-----')
-    for i in range(4):
-        if dissum[i] != []:
-            print('{}: {}'.format(alg[i],round(sum(dissum[i])/len(dissum[i]), 2)))
+    for i in range(len(inc)):
+        print('{}: {}'.format(rates[i],inc[i]))
 
 #ーーーーーーーーーーーーーーー実装ーーーーーーーーーーーーーーー
 EMPTY_STEP = 10000 #空ステップ数
 STEP_NUMBER = 4000 #ステップ数
 XY = 35 #人数　XY*XY人
-algorithms = ['TIME_SERIES','ENGAGE_SERIES','HISTORY_SERIES','PROPOSE_SERIES'] #アルゴリズム
+current = 0
+rates = np.arange(0, 0.6, 0.03)
 SIM_NUM = 10
-
-simulation(EMPTY_STEP, STEP_NUMBER, XY, algorithms, SIM_NUM)
+print(rates)
+print('\n')
+simulation(EMPTY_STEP, STEP_NUMBER, XY, rates, SIM_NUM)
